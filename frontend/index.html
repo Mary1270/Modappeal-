@@ -1,1 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ModAppeal — Docket</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16202A;
+    --paper:#E9ECF1;
+    --paper-raised:#F5F6F9;
+    --line:#C7CCD3;
+    --muted:#5B6672;
+    --flag:#B23A2E;
+    --flag-bg:#F4E3E0;
+    --resolve:#1E6F5C;
+    --resolve-bg:#E1EEE9;
+    --partial:#B07A16;
+    --partial-bg:#F2E8D4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;
+    padding:0 0 80px;
+  }
+  .mono{ font-family:"IBM Plex Mono",monospace; }
+  a{ color:inherit; }
 
+  header.docket-head{
+    background:var(--ink);
+    color:var(--paper);
+    padding:28px 20px 22px;
+    border-bottom:4px solid var(--flag);
+  }
+  header.docket-head .kicker{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12px;
+    letter-spacing:0.04em;
+    color:#AEB8C4;
+    margin:0 0 6px;
+  }
+  header.docket-head h1{
+    font-family:"Source Serif 4",Georgia,serif;
+    font-weight:700;
+    font-size:clamp(28px,7vw,38px);
+    margin:0 0 4px;
+  }
+  header.docket-head p.sub{
+    margin:0;
+    color:#C9D0D8;
+    font-size:14.5px;
+    max-width:60ch;
+  }
+
+  .wrap{ max-width:640px; margin:0 auto; padding:0 18px; }
+
+  .connectbar{
+    margin-top:-20px;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 16px;
+    box-shadow:0 6px 18px rgba(22,32,42,0.12);
+  }
+  .connectbar .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .connectbar label{ font-size:12.5px; color:var(--muted); display:block; margin-bottom:4px; }
+  .connectbar input[type=text]{
+    width:100%; font-family:"IBM Plex Mono",monospace; font-size:13px;
+    padding:9px 10px; border:1px solid var(--line); border-radius:7px; background:#fff;
+  }
+  .status-dot{ width:9px; height:9px; border-radius:50%; background:var(--muted); flex:none; }
+  .status-dot.on{ background:var(--resolve); }
+  .status-text{ font-size:13px; color:var(--muted); }
+
+  button{
+    font:inherit; cursor:pointer; border:none; border-radius:7px;
+    padding:10px 16px; font-weight:600; font-size:14px;
+    background:var(--ink); color:var(--paper);
+  }
+  button.secondary{ background:transparent; color:var(--ink); border:1.5px solid var(--ink); }
+  button:disabled{ opacity:0.45; cursor:not-allowed; }
+  button.wide{ width:100%; }
+
+  .entry{
+    display:flex; gap:14px; padding:26px 0; border-bottom:1px solid var(--line);
+  }
+  .entry:last-child{ border-bottom:none; }
+  .entry .num{
+    font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--muted);
+    flex:none; width:28px; padding-top:3px;
+  }
+  .entry .body{ flex:1; min-width:0; }
+  .entry h2{
+    font-family:"Source Serif 4",Georgia,serif; font-weight:600; font-size:19px; margin:0 0 4px;
+  }
+  .entry .desc{ font-size:13.5px; color:var(--muted); margin:0 0 14px; max-width:52ch; }
+
+  .field{ margin-bottom:10px; }
+  .field label{ display:block; font-size:12.5px; color:var(--muted); margin-bottom:4px; }
+  .field input, .field select{
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px;
+    font-size:14px; background:#fff; font-family:inherit;
+  }
+  .field input.mono, .field.mono input{ font-family:"IBM Plex Mono",monospace; font-size:13px; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:420px){ .grid2{ grid-template-columns:1fr; } }
+
+  .out{
+    margin-top:12px; padding:12px 13px; background:var(--paper); border-radius:7px;
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; white-space:pre-wrap;
+    word-break:break-all; border:1px solid var(--line); display:none;
+  }
+  .out.show{ display:block; }
+  .out.err{ background:var(--flag-bg); border-color:#DDBBB6; color:#7A2A21; }
+  .out.ok{ background:var(--resolve-bg); border-color:#BFDBD1; color:#124839; }
+
+  .badge{
+    display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:12px;
+    padding:3px 9px; border-radius:20px; font-weight:600;
+  }
+  .badge.VIOLATION{ background:var(--flag-bg); color:var(--flag); }
+  .badge.NO_VIOLATION{ background:var(--resolve-bg); color:var(--resolve); }
+  .badge.PARTIAL{ background:var(--partial-bg); color:var(--partial); }
+
+  .stamp{
+    display:inline-block; border:3px solid currentColor; border-radius:10px;
+    padding:10px 18px; font-family:"IBM Plex Mono",monospace; font-weight:700;
+    font-size:15px; letter-spacing:0.03em; transform:rotate(-3deg); margin:8px 0;
+  }
+  .stamp.VIOLATION{ color:var(--flag); }
+  .stamp.NO_VIOLATION{ color:var(--resolve); }
+  .stamp.PARTIAL{ color:var(--partial); }
+
+  .hint{ font-size:12px; color:var(--muted); margin-top:6px; }
+  .hashline{
+    display:flex; align-items:center; gap:8px; margin-top:8px; font-family:"IBM Plex Mono",monospace;
+    font-size:12px; background:#fff; border:1px solid var(--line); border-radius:7px; padding:8px 10px;
+  }
+  .hashline .val{ flex:1; overflow-x:auto; white-space:nowrap; }
+  .hashline button{ padding:5px 9px; font-size:12px; }
+
+  footer{ text-align:center; color:var(--muted); font-size:12px; padding:30px 18px 0; }
+</style>
+</head>
+<body>
+
+<header class="docket-head">
+  <div class="wrap">
+    <p class="kicker">GENLAYER INTELLIGENT CONTRACT — CONTENT MODERATION APPEALS</p>
+    <h1>ModAppeal</h1>
+    <p class="sub">A flagged post gets an automated verdict. Either side can appeal it to a staked jury — and if the jury can't agree, a larger jury tries again, automatically.</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="connectbar">
+    <div class="field" style="margin-bottom:12px;">
+      <label for="contractAddr">Contract address</label>
+      <input type="text" id="contractAddr" class="mono" placeholder="0x…" value="0x0A9366c82a782c6f1FCa3263C4e318e9Ce158913" />
+    </div>
+    <div class="row">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">Wallet not connected</span>
+      <div style="flex:1"></div>
+      <button id="connectBtn">Connect wallet</button>
+    </div>
+  </div>
+
+  <!-- 1: Submit flag -->
+  <div class="entry">
+    <div class="num">01</div>
+    <div class="body">
+      <h2>Flag a post</h2>
+      <p class="desc">Register a piece of content for moderation. The platform account usually does this.</p>
+      <div class="field"><label>Platform address</label><input class="mono" id="f_platform" placeholder="0x…"></div>
+      <div class="field"><label>Flagger address</label><input class="mono" id="f_flagger" placeholder="0x…"></div>
+      <div class="field"><label>Publisher address</label><input class="mono" id="f_publisher" placeholder="0x…"></div>
+      <div class="field"><label>Content ID</label><input id="f_content" placeholder="post-482"></div>
+      <div class="field"><label>Evidence URL</label><input id="f_evidence" placeholder="https://example.com/post/482"></div>
+      <button class="wide" id="btn_submit_flag">Submit flag</button>
+      <div class="out" id="out_submit_flag"></div>
+    </div>
+  </div>
+
+  <!-- 2: Case lookup + auto verdict -->
+  <div class="entry">
+    <div class="num">02</div>
+    <div class="body">
+      <h2>Automated verdict</h2>
+      <p class="desc">Look up a case, then trigger the AI moderation verdict.</p>
+      <div class="field"><label>Case ID</label><input class="mono" id="case_id" placeholder="1"></div>
+      <div class="grid2">
+        <button class="secondary" id="btn_get_case">Look up case</button>
+        <button id="btn_auto_verdict">Run auto-verdict</button>
+      </div>
+      <div class="out" id="out_case"></div>
+    </div>
+  </div>
+
+  <!-- 3: Appeal -->
+  <div class="entry">
+    <div class="num">03</div>
+    <div class="body">
+      <h2>File an appeal</h2>
+      <p class="desc">Costs a 10 GEN stake, forfeited into the jury reward pool. Only the eligible side for the verdict above can appeal.</p>
+      <button class="wide" id="btn_file_appeal">File appeal — stake 10 GEN</button>
+      <div class="out" id="out_appeal"></div>
+    </div>
+  </div>
+
+  <!-- 4: Juror registration + round lookup -->
+  <div class="entry">
+    <div class="num">04</div>
+    <div class="body">
+      <h2>Jury</h2>
+      <p class="desc">Register the connected wallet as an eligible juror, or look up who was selected for a round.</p>
+      <button id="btn_register_juror">Register as juror</button>
+      <div class="out" id="out_register"></div>
+      <div class="field" style="margin-top:16px;"><label>Round ID</label><input class="mono" id="round_id" placeholder="1"></div>
+      <button class="secondary wide" id="btn_get_round">Look up round</button>
+      <div class="out" id="out_round"></div>
+    </div>
+  </div>
+
+  <!-- 5: Commit -->
+  <div class="entry">
+    <div class="num">05</div>
+    <div class="body">
+      <h2>Commit a vote</h2>
+      <p class="desc">Stakes 2 GEN. Your verdict and salt are hashed locally — nobody can see your vote until you reveal it.</p>
+      <div class="field">
+        <label>Verdict</label>
+        <select id="c_verdict">
+          <option value="VIOLATION">VIOLATION</option>
+          <option value="NO_VIOLATION">NO_VIOLATION</option>
+          <option value="PARTIAL">PARTIAL</option>
+        </select>
+      </div>
+      <div class="field"><label>Salt (remember this — you'll need it to reveal)</label><input class="mono" id="c_salt" placeholder="any random text"></div>
+      <div class="hashline"><span class="val" id="c_hash_preview">commitment hash appears here</span></div>
+      <button class="wide" id="btn_commit" style="margin-top:12px;">Commit — stake 2 GEN</button>
+      <div class="out" id="out_commit"></div>
+      <p class="hint">Once every juror has committed (or the window ends), anyone can close committing below.</p>
+      <button class="secondary wide" id="btn_close_commit">Close commit phase</button>
+      <div class="out" id="out_close"></div>
+    </div>
+  </div>
+
+  <!-- 6: Reveal -->
+  <div class="entry">
+    <div class="num">06</div>
+    <div class="body">
+      <h2>Reveal your vote</h2>
+      <p class="desc">Enter the exact same verdict and salt you committed with.</p>
+      <div class="field">
+        <label>Verdict</label>
+        <select id="r_verdict">
+          <option value="VIOLATION">VIOLATION</option>
+          <option value="NO_VIOLATION">NO_VIOLATION</option>
+          <option value="PARTIAL">PARTIAL</option>
+        </select>
+      </div>
+      <div class="field"><label>Salt</label><input class="mono" id="r_salt" placeholder="the same salt you committed with"></div>
+      <button class="wide" id="btn_reveal">Reveal vote</button>
+      <div class="out" id="out_reveal"></div>
+      <p class="hint">Once every juror has revealed (or the window ends), anyone can tally the round.</p>
+      <button class="secondary wide" id="btn_tally">Tally round</button>
+      <div class="out" id="out_tally"></div>
+    </div>
+  </div>
+
+  <!-- 7: Claim -->
+  <div class="entry">
+    <div class="num">07</div>
+    <div class="body">
+      <h2>Claim rewards</h2>
+      <p class="desc">If the connected wallet is owed a stake return or reward, claim it here.</p>
+      <div class="grid2">
+        <button class="secondary" id="btn_get_claimable">Check balance</button>
+        <button id="btn_claim">Claim</button>
+      </div>
+      <div class="out" id="out_claim"></div>
+    </div>
+  </div>
+
+</div>
+
+<footer>ModAppeal · a GenLayer Intelligent Contract · Studio network</footer>
+
+<script type="module">
+import { createClient, createAccount } from "https://esm.sh/genlayer-js";
+import { studionet } from "https://esm.sh/genlayer-js/chains";
+import { TransactionStatus } from "https://esm.sh/genlayer-js/types";
+
+const $ = (id) => document.getElementById(id);
+const GEN = 10n ** 18n;
+
+let client = null;
+let account = null;
+
+function show(el, text, kind) {
+  el.textContent = text;
+  el.className = "out show" + (kind ? " " + kind : "");
+}
+
+function contractAddress() {
+  const v = $("contractAddr").value.trim();
+  if (!v) throw new Error("Enter the contract address above first.");
+  return v;
+}
+
+async function sha256Hex(text) {
+  const data = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function updateHashPreview() {
+  const verdict = $("c_verdict").value;
+  const salt = $("c_salt").value;
+  if (!salt) { $("c_hash_preview").textContent = "commitment hash appears here"; return; }
+  const hash = await sha256Hex(verdict + salt);
+  $("c_hash_preview").textContent = hash;
+}
+$("c_verdict").addEventListener("change", updateHashPreview);
+$("c_salt").addEventListener("input", updateHashPreview);
+
+$("connectBtn").addEventListener("click", async () => {
+  if (!window.ethereum) {
+    alert("No wallet found. Open this page inside MetaMask's in-app browser, or install a wallet extension.");
+    return;
+  }
+  try {
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    account = accounts[0];
+    client = createClient({ chain: studionet, account });
+    await client.connect("studionet");
+    $("statusDot").classList.add("on");
+    $("statusText").textContent = account.slice(0, 6) + "…" + account.slice(-4) + " connected";
+  } catch (e) {
+    show($("out_submit_flag"), String(e), "err");
+  }
+});
+
+function requireClient() {
+  if (!client) throw new Error("Connect your wallet first.");
+}
+
+async function write(fn, args, value) {
+  requireClient();
+  const address = contractAddress();
+  const hash = await client.writeContract({
+    account, address, functionName: fn, args, value: value || 0n,
+  });
+  const receipt = await client.waitForTransactionReceipt({ hash, status: TransactionStatus.ACCEPTED });
+  return receipt;
+}
+
+async function read(fn, args) {
+  requireClient();
+  const address = contractAddress();
+  return client.readContract({ address, functionName: fn, args: args || [], stateStatus: "accepted" });
+}
+
+// 1. submit_flag
+$("btn_submit_flag").addEventListener("click", async () => {
+  const out = $("out_submit_flag");
+  try {
+    show(out, "Submitting…");
+    const args = [
+      $("f_platform").value.trim(),
+      $("f_flagger").value.trim(),
+      $("f_publisher").value.trim(),
+      $("f_content").value.trim(),
+      [$("f_evidence").value.trim()],
+    ];
+    const receipt = await write("submit_flag", args);
+    show(out, "Flag submitted. Check the case ID in the transaction result, then use it below.\n" + JSON.stringify(receipt, null, 2), "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 2. get_case / auto_verdict
+function renderCase(out, data) {
+  const verdict = data.final_verdict || data.automated_verdict || "";
+  let html = `Status: ${data.status}\n`;
+  if (data.automated_verdict) html += `Automated verdict: ${data.automated_verdict}\n`;
+  if (data.final_verdict) html += `Final verdict: ${data.final_verdict}\n`;
+  html += `Escalations: ${data.escalation_count}   Round: ${data.current_round_id}   Reward pool: ${data.reward_pool}\n`;
+  if (data.evidence_hash) html += `Evidence hash: ${data.evidence_hash}`;
+  out.innerHTML = "";
+  out.className = "out show";
+  out.textContent = html;
+  if (verdict) {
+    const stamp = document.createElement("div");
+    stamp.className = "stamp " + verdict;
+    stamp.textContent = verdict.replace("_", " ");
+    out.prepend(stamp);
+  }
+}
+$("btn_get_case").addEventListener("click", async () => {
+  const out = $("out_case");
+  try {
+    show(out, "Looking up…");
+    const data = await read("get_case", [Number($("case_id").value)]);
+    renderCase(out, data);
+  } catch (e) { show(out, String(e), "err"); }
+});
+$("btn_auto_verdict").addEventListener("click", async () => {
+  const out = $("out_case");
+  try {
+    show(out, "Running the moderation model…");
+    await write("auto_verdict", [Number($("case_id").value)]);
+    const data = await read("get_case", [Number($("case_id").value)]);
+    renderCase(out, data);
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 3. file_appeal
+$("btn_file_appeal").addEventListener("click", async () => {
+  const out = $("out_appeal");
+  try {
+    show(out, "Filing appeal…");
+    await write("file_appeal", [Number($("case_id").value)], 10n * GEN);
+    show(out, "Appeal filed. A jury round has started — look it up below.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 4. register_as_juror / get_round
+$("btn_register_juror").addEventListener("click", async () => {
+  const out = $("out_register");
+  try {
+    show(out, "Registering…");
+    await write("register_as_juror", []);
+    show(out, "Registered as a juror.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+$("btn_get_round").addEventListener("click", async () => {
+  const out = $("out_round");
+  try {
+    show(out, "Looking up…");
+    const data = await read("get_round", [Number($("case_id").value), Number($("round_id").value)]);
+    show(out, JSON.stringify(data, null, 2));
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 5. commit_vote / close_commit
+$("btn_commit").addEventListener("click", async () => {
+  const out = $("out_commit");
+  try {
+    const verdict = $("c_verdict").value;
+    const salt = $("c_salt").value.trim();
+    if (!salt) throw new Error("Enter a salt first — you'll need to remember it to reveal.");
+    const hash = await sha256Hex(verdict + salt);
+    show(out, "Committing…");
+    await write("commit_vote", [Number($("case_id").value), Number($("round_id").value), hash], 2n * GEN);
+    show(out, "Vote committed. Save your verdict + salt for the reveal step.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+$("btn_close_commit").addEventListener("click", async () => {
+  const out = $("out_close");
+  try {
+    show(out, "Closing commit phase…");
+    await write("close_commit", [Number($("case_id").value), Number($("round_id").value)]);
+    show(out, "Commit phase closed. Jurors can now reveal.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 6. reveal_vote / tally_round
+$("btn_reveal").addEventListener("click", async () => {
+  const out = $("out_reveal");
+  try {
+    show(out, "Revealing…");
+    await write("reveal_vote", [
+      Number($("case_id").value), Number($("round_id").value),
+      $("r_verdict").value, $("r_salt").value.trim(),
+    ]);
+    show(out, "Vote revealed.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+$("btn_tally").addEventListener("click", async () => {
+  const out = $("out_tally");
+  try {
+    show(out, "Tallying…");
+    await write("tally_round", [Number($("case_id").value), Number($("round_id").value)]);
+    const data = await read("get_case", [Number($("case_id").value)]);
+    renderCase(out, data);
+  } catch (e) { show(out, String(e), "err"); }
+});
+
+// 7. claim / get_claimable
+$("btn_get_claimable").addEventListener("click", async () => {
+  const out = $("out_claim");
+  try {
+    requireClient();
+    show(out, "Checking…");
+    const bal = await read("get_claimable", [account]);
+    show(out, `Claimable: ${(BigInt(bal) * 1000n / GEN)} / 1000 GEN`);
+  } catch (e) { show(out, String(e), "err"); }
+});
+$("btn_claim").addEventListener("click", async () => {
+  const out = $("out_claim");
+  try {
+    show(out, "Claiming…");
+    await write("claim", []);
+    show(out, "Claimed.", "ok");
+  } catch (e) { show(out, String(e), "err"); }
+});
+</script>
+</body>
+</html>
