@@ -360,6 +360,17 @@ $("connectBtn").addEventListener("click", async () => {
     } catch (chainErr) {
       console.warn("Chain auto-switch skipped:", chainErr);
     }
+    // Required before any write: wires the client to the network's
+    // consensus contract address. Skipping this can leave an internal
+    // address undefined and cause writes to fail with a cryptic viem
+    // "Address 'undefined' is invalid" error. Guarded the same way as
+    // connect() above -- a failure here still shouldn't block showing
+    // "connected", since reads already work at that point.
+    try {
+      await client.initializeConsensusSmartContract();
+    } catch (initErr) {
+      console.warn("Consensus contract init skipped:", initErr);
+    }
     $("statusDot").classList.add("on");
     $("statusText").textContent = account.slice(0, 6) + "…" + account.slice(-4) + " connected";
   } catch (e) {
