@@ -295,9 +295,8 @@
 <footer>ModAppeal · a GenLayer Intelligent Contract · Studio network</footer>
 
 <script type="module">
-import { createClient, createAccount } from "https://esm.sh/genlayer-js";
-import { studionet } from "https://esm.sh/genlayer-js/chains";
-import { TransactionStatus } from "https://esm.sh/genlayer-js/types";
+import { createClient, createAccount } from "https://esm.sh/genlayer-js@latest";
+import { studionet } from "https://esm.sh/genlayer-js@latest/chains";
 
 const $ = (id) => document.getElementById(id);
 const GEN = 10n ** 18n;
@@ -349,28 +348,7 @@ $("connectBtn").addEventListener("click", async () => {
   try {
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
     account = accounts[0];
-    client = createClient({ chain: studionet, account, provider: window.ethereum });
-    // client.connect() tries to auto-switch the wallet's network using
-    // MetaMask's Snaps API (wallet_getSnaps) -- this is MetaMask-only and
-    // fails on other wallets (e.g. Rabby: "doesn't has corresponding
-    // handler"). It's a convenience step, not required for reading or
-    // writing, so a failure here is not treated as a connection failure.
-    try {
-      await client.connect("studionet");
-    } catch (chainErr) {
-      console.warn("Chain auto-switch skipped:", chainErr);
-    }
-    // Required before any write: wires the client to the network's
-    // consensus contract address. Skipping this can leave an internal
-    // address undefined and cause writes to fail with a cryptic viem
-    // "Address 'undefined' is invalid" error. Guarded the same way as
-    // connect() above -- a failure here still shouldn't block showing
-    // "connected", since reads already work at that point.
-    try {
-      await client.initializeConsensusSmartContract();
-    } catch (initErr) {
-      console.warn("Consensus contract init skipped:", initErr);
-    }
+    client = createClient({ chain: studionet, account });
     $("statusDot").classList.add("on");
     $("statusText").textContent = account.slice(0, 6) + "…" + account.slice(-4) + " connected";
   } catch (e) {
@@ -387,9 +365,9 @@ async function write(fn, args, value) {
   requireClient();
   const address = contractAddress();
   const hash = await client.writeContract({
-    account, address, functionName: fn, args, value: value || 0n,
+    address, functionName: fn, args, value: value || 0n,
   });
-  const receipt = await client.waitForTransactionReceipt({ hash, status: TransactionStatus.ACCEPTED });
+  const receipt = await client.waitForTransactionReceipt({ hash, status: "ACCEPTED" });
   return receipt;
 }
 
