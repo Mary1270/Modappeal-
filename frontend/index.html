@@ -349,7 +349,7 @@ $("connectBtn").addEventListener("click", async () => {
   try {
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
     account = accounts[0];
-    client = createClient({ chain: studionet, account });
+    client = createClient({ chain: studionet, account, provider: window.ethereum });
     // client.connect() tries to auto-switch the wallet's network using
     // MetaMask's Snaps API (wallet_getSnaps) -- this is MetaMask-only and
     // fails on other wallets (e.g. Rabby: "doesn't has corresponding
