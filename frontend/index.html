@@ -170,6 +170,7 @@
       <div style="flex:1"></div>
       <button id="connectBtn">Connect wallet</button>
     </div>
+    <div class="out" id="out_connect"></div>
   </div>
 
   <!-- 1: Submit flag -->
@@ -309,6 +310,15 @@ function show(el, text, kind) {
   el.className = "out show" + (kind ? " " + kind : "");
 }
 
+function errorText(e) {
+  if (!e) return "Unknown error.";
+  if (typeof e === "string") return e;
+  if (e.message) return e.message;
+  if (e.reason) return e.reason;
+  if (e.error && e.error.message) return e.error.message;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
 function contractAddress() {
   const v = $("contractAddr").value.trim();
   if (!v) throw new Error("Enter the contract address above first.");
@@ -333,7 +343,7 @@ $("c_salt").addEventListener("input", updateHashPreview);
 
 $("connectBtn").addEventListener("click", async () => {
   if (!window.ethereum) {
-    alert("No wallet found. Open this page inside MetaMask's in-app browser, or install a wallet extension.");
+    $("statusText").textContent = "No wallet found — open this page inside MetaMask's in-app browser.";
     return;
   }
   try {
@@ -344,7 +354,8 @@ $("connectBtn").addEventListener("click", async () => {
     $("statusDot").classList.add("on");
     $("statusText").textContent = account.slice(0, 6) + "…" + account.slice(-4) + " connected";
   } catch (e) {
-    show($("out_submit_flag"), String(e), "err");
+    $("statusText").textContent = "Connection failed";
+    show($("out_connect"), errorText(e), "err");
   }
 });
 
@@ -382,7 +393,7 @@ $("btn_submit_flag").addEventListener("click", async () => {
     ];
     const receipt = await write("submit_flag", args);
     show(out, "Flag submitted. Check the case ID in the transaction result, then use it below.\n" + JSON.stringify(receipt, null, 2), "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 2. get_case / auto_verdict
@@ -409,7 +420,7 @@ $("btn_get_case").addEventListener("click", async () => {
     show(out, "Looking up…");
     const data = await read("get_case", [Number($("case_id").value)]);
     renderCase(out, data);
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_auto_verdict").addEventListener("click", async () => {
   const out = $("out_case");
@@ -418,7 +429,7 @@ $("btn_auto_verdict").addEventListener("click", async () => {
     await write("auto_verdict", [Number($("case_id").value)]);
     const data = await read("get_case", [Number($("case_id").value)]);
     renderCase(out, data);
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 3. file_appeal
@@ -428,7 +439,7 @@ $("btn_file_appeal").addEventListener("click", async () => {
     show(out, "Filing appeal…");
     await write("file_appeal", [Number($("case_id").value)], 10n * GEN);
     show(out, "Appeal filed. A jury round has started — look it up below.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 4. register_as_juror / get_round
@@ -438,7 +449,7 @@ $("btn_register_juror").addEventListener("click", async () => {
     show(out, "Registering…");
     await write("register_as_juror", []);
     show(out, "Registered as a juror.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_get_round").addEventListener("click", async () => {
   const out = $("out_round");
@@ -446,7 +457,7 @@ $("btn_get_round").addEventListener("click", async () => {
     show(out, "Looking up…");
     const data = await read("get_round", [Number($("case_id").value), Number($("round_id").value)]);
     show(out, JSON.stringify(data, null, 2));
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 5. commit_vote / close_commit
@@ -460,7 +471,7 @@ $("btn_commit").addEventListener("click", async () => {
     show(out, "Committing…");
     await write("commit_vote", [Number($("case_id").value), Number($("round_id").value), hash], 2n * GEN);
     show(out, "Vote committed. Save your verdict + salt for the reveal step.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_close_commit").addEventListener("click", async () => {
   const out = $("out_close");
@@ -468,7 +479,7 @@ $("btn_close_commit").addEventListener("click", async () => {
     show(out, "Closing commit phase…");
     await write("close_commit", [Number($("case_id").value), Number($("round_id").value)]);
     show(out, "Commit phase closed. Jurors can now reveal.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 6. reveal_vote / tally_round
@@ -481,7 +492,7 @@ $("btn_reveal").addEventListener("click", async () => {
       $("r_verdict").value, $("r_salt").value.trim(),
     ]);
     show(out, "Vote revealed.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_tally").addEventListener("click", async () => {
   const out = $("out_tally");
@@ -490,7 +501,7 @@ $("btn_tally").addEventListener("click", async () => {
     await write("tally_round", [Number($("case_id").value), Number($("round_id").value)]);
     const data = await read("get_case", [Number($("case_id").value)]);
     renderCase(out, data);
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 
 // 7. claim / get_claimable
@@ -501,7 +512,7 @@ $("btn_get_claimable").addEventListener("click", async () => {
     show(out, "Checking…");
     const bal = await read("get_claimable", [account]);
     show(out, `Claimable: ${(BigInt(bal) * 1000n / GEN)} / 1000 GEN`);
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_claim").addEventListener("click", async () => {
   const out = $("out_claim");
@@ -509,7 +520,7 @@ $("btn_claim").addEventListener("click", async () => {
     show(out, "Claiming…");
     await write("claim", []);
     show(out, "Claimed.", "ok");
-  } catch (e) { show(out, String(e), "err"); }
+  } catch (e) { show(out, errorText(e), "err"); }
 });
 </script>
 </body>
