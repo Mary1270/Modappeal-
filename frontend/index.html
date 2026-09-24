@@ -350,7 +350,16 @@ $("connectBtn").addEventListener("click", async () => {
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
     account = accounts[0];
     client = createClient({ chain: studionet, account });
-    await client.connect("studionet");
+    // client.connect() tries to auto-switch the wallet's network using
+    // MetaMask's Snaps API (wallet_getSnaps) -- this is MetaMask-only and
+    // fails on other wallets (e.g. Rabby: "doesn't has corresponding
+    // handler"). It's a convenience step, not required for reading or
+    // writing, so a failure here is not treated as a connection failure.
+    try {
+      await client.connect("studionet");
+    } catch (chainErr) {
+      console.warn("Chain auto-switch skipped:", chainErr);
+    }
     $("statusDot").classList.add("on");
     $("statusText").textContent = account.slice(0, 6) + "…" + account.slice(-4) + " connected";
   } catch (e) {
