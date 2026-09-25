@@ -33,7 +33,7 @@ undocumented anywhere else).
 ```
 contracts/modappeal.py   the contract
 frontend/index.html      no-build browser frontend (genlayer-js + MetaMask)
-tests/                   offline test suite (21 tests, no external deps)
+tests/                   offline test suite (24 tests, no external deps)
 ARCHITECTURE.md          full design doc + GenVM lessons learned
 ```
 
