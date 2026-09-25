@@ -80,27 +80,54 @@ class Case:
     deadlock_eligible: DynArray[Address]
 
 
-def _llm_verdict_leader(content_id: str, evidence_urls: list) -> str:
+MODERATION_POLICY = """Content Moderation Policy (v1):
+A post is VIOLATION if it directly threatens violence against a person or
+group, contains hate speech targeting a protected characteristic (race,
+religion, ethnicity, gender, sexual orientation, disability), or shares
+content that sexually exploits minors.
+A post is NO_VIOLATION if none of the above apply, even if the content is
+controversial, offensive, or in poor taste.
+A post is PARTIAL if it borders on a violation (e.g. hostile language
+directed at a group without an explicit threat, or ambiguous edge-case
+hate speech) such that a human reviewer would flag it for context, but it
+does not unambiguously meet the VIOLATION bar above."""
+
+
+def _fetch_evidence_content(evidence_urls: list) -> str:
+    # Actually fetch the cited evidence rather than judging a bare URL
+    # string. Each validator performs this fetch independently (see
+    # _derive_verdict / the leader+validator wiring in auto_verdict),
+    # so the verdict is grounded in fetched content, not a URL's name.
+    # If EVERY evidence URL fails to fetch, there is no real evidence to
+    # adjudicate on at all -- raise rather than let a verdict be issued
+    # against a placeholder "[unable to fetch ...]" string. A per-URL
+    # failure alongside at least one successful fetch is still tolerated
+    # (partial evidence is still real evidence).
+    chunks = []
+    any_succeeded = False
+    for url in evidence_urls:
+        try:
+            chunks.append(gl.nondet.web.render(url))
+            any_succeeded = True
+        except Exception:
+            chunks.append(f"[unable to fetch {url}]")
+    if not any_succeeded:
+        raise Exception("no evidence could be fetched; refusing to issue a verdict")
+    return "\n---\n".join(chunks)
+
+
+def _derive_verdict(content_id: str, evidence_urls: list) -> str:
+    fetched = _fetch_evidence_content(evidence_urls)
     prompt = (
-        "You are moderating content for policy compliance. "
-        f"Content id: {content_id}. Evidence: {evidence_urls}. "
-        "Respond with exactly one word: VIOLATION, NO_VIOLATION, or PARTIAL."
+        f"{MODERATION_POLICY}\n\n"
+        f"Content id: {content_id}.\n"
+        f"Fetched evidence content:\n{fetched}\n\n"
+        "Apply the policy above strictly to the fetched evidence content "
+        "above -- not to the URL or content id alone. Respond with exactly "
+        "one word: VIOLATION, NO_VIOLATION, or PARTIAL."
     )
     result = gl.nondet.exec_prompt(prompt).strip().upper()
     return result if result in VERDICTS else NO_VIOLATION
-
-
-def _llm_verdict_validator(leader_result) -> bool:
-    # Lenient (format-only) validator: accept the leader's verdict as long
-    # as it's a well-formed value. This does NOT independently re-run the
-    # LLM to compare decisions (a stricter, "re-derive and compare" pattern
-    # used in some GenLayer projects) -- for a genuinely subjective
-    # moderation call, requiring two separate LLM calls to agree exactly
-    # would cause frequent false disagreement even on clear-cut content.
-    # Documented as a deliberate v1 trade-off.
-    if not isinstance(leader_result, gl.vm.Return):
-        return False
-    return leader_result.calldata in VERDICTS
 
 
 class ModAppeal(gl.Contract):
@@ -173,14 +200,28 @@ class ModAppeal(gl.Contract):
         # captures `self` (the whole contract, storage fields included) in
         # its closure, which GenVM then tries to pickle for the sandboxed
         # nondet worker and fails ("Detected pickling storage class").
-        # Module-level functions below take only plain values, so nothing
-        # storage-backed ever crosses into the nondet block.
         content_id = str(case.content_id)
         evidence_urls = list(case.evidence_urls)
-        verdict = gl.vm.run_nondet_unsafe(
-            lambda: _llm_verdict_leader(content_id, evidence_urls),
-            _llm_verdict_validator,
-        )
+
+        def leader_fn():
+            return _derive_verdict(content_id, evidence_urls)
+
+        def validator_fn(leader_result):
+            # Meaningful validator adjudication: each validator independently
+            # re-fetches the cited evidence and re-derives its own verdict
+            # against the same bound policy, then requires an exact match
+            # with the leader's verdict -- not a bare format/label check.
+            # Calls the module-level function directly (not through the
+            # leader_fn closure above) so this closure only ever captures
+            # plain values (content_id, evidence_urls), never another
+            # closure -- matching the exact shape already proven safe to
+            # serialize for the sandboxed nondet worker.
+            if not isinstance(leader_result, gl.vm.Return):
+                return False
+            independent_verdict = _derive_verdict(content_id, evidence_urls)
+            return independent_verdict == leader_result.calldata
+
+        verdict = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
         case.automated_verdict = verdict
         case.appeal_window_deadline = self._now() + datetime.timedelta(seconds=APPEAL_WINDOW_SECONDS)
         self.cases[case_id] = case
