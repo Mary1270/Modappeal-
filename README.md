@@ -5,7 +5,7 @@ AI verdict on flagged content, a staked commit-reveal jury for appeals, and
 automatic escalation to a larger jury when the first jury can't reach a
 majority — instead of silently falling back to the original verdict.
 
-Live on GenLayer Studio: `0x0A9366c82a782c6f1FCa3263C4e318e9Ce158913`
+Live on GenLayer Studio: `0xab826397683A47deFEd74683D3A7515D9d0367f3`
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full state machine, economics,
 and a list of GenVM runtime quirks discovered while building this (several are
