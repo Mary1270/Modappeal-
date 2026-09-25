@@ -62,11 +62,19 @@ class _VM:
     Return = Return
 
 
+class _Web:
+    @staticmethod
+    def render(url):
+        return f"[stub content for {url}]"
+
+
 class _Nondet:
     # Overridden per-test via monkeypatch of gl.nondet.exec_prompt
     @staticmethod
     def exec_prompt(prompt):
         return "NO_VIOLATION"
+
+    web = _Web()
 
 
 class _ContractHandle:

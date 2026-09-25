@@ -16,6 +16,7 @@ TEST_MODULES = [
     "test_economics",
     "test_evidence_freeze",
     "test_accounting_invariant",
+    "test_auto_verdict",
 ]
 
 
