@@ -17,6 +17,7 @@ TEST_MODULES = [
     "test_evidence_freeze",
     "test_accounting_invariant",
     "test_auto_verdict",
+    "test_steward_protections",
 ]
 
 

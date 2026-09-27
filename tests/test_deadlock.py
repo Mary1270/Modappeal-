@@ -7,6 +7,7 @@ def test_deadlock_splits_pool_and_sends_remainder_to_treasury():
     c = new_contract()
     pool = [f"0xj{i}" for i in range(40)]
     register_jurors(c, pool)
+    treasury_from_registration = int(c.treasury)  # registration stakes already banked
 
     case_id = submit_and_verdict(c, verdict="VIOLATION")
     file_appeal(c, case_id, appellant="0xpub")
@@ -36,7 +37,7 @@ def test_deadlock_splits_pool_and_sends_remainder_to_treasury():
 
     # every juror's own stake is returned in full regardless of round outcome
     assert total_claimable_consolation == expected_each * n
-    assert c.treasury == expected_remainder
+    assert int(c.treasury) - treasury_from_registration == expected_remainder
 
 
 def sum_of_returned_stakes(contract, addrs):

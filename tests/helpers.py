@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from stub_genlayer import gl, Address, u256, commitment_hash, reset, set_time, install_fake_clock  # noqa: E402
 import modappeal  # noqa: E402
-from modappeal import ModAppeal, APPEAL_STAKE, JUROR_STAKE, COMMIT_WINDOW_SECONDS, REVEAL_WINDOW_SECONDS  # noqa: E402
+from modappeal import ModAppeal, APPEAL_STAKE, JUROR_STAKE, JUROR_REGISTRATION_STAKE, COMMIT_WINDOW_SECONDS, REVEAL_WINDOW_SECONDS  # noqa: E402
 
 install_fake_clock(modappeal)
 
@@ -17,7 +17,9 @@ def new_contract():
 def register_jurors(c, addrs):
     for a in addrs:
         gl.message.sender_address = Address(a)
+        gl.message.value = JUROR_REGISTRATION_STAKE
         c.register_as_juror()
+    gl.message.value = u256(0)
 
 
 def submit_and_verdict(c, verdict="NO_VIOLATION", platform="0xplat", flagger="0xflag",

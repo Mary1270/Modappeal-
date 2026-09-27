@@ -7,6 +7,7 @@ def test_correct_jurors_get_stake_plus_reward_minority_gets_stake_only():
     c = new_contract()
     jurors = [f"0xj{i}" for i in range(5)]
     register_jurors(c, jurors)
+    treasury_from_registration = int(c.treasury)
 
     case_id = submit_and_verdict(c, verdict="VIOLATION")
     file_appeal(c, case_id, appellant="0xpub")
@@ -29,7 +30,7 @@ def test_correct_jurors_get_stake_plus_reward_minority_gets_stake_only():
         assert int(c.get_claimable(addr)) == int(JUROR_STAKE) + reward_each
     for addr in round_jurors[3:]:
         assert int(c.get_claimable(addr)) == int(JUROR_STAKE)
-    assert int(c.treasury) == remainder
+    assert int(c.treasury) - treasury_from_registration == remainder
     assert final["reward_pool"] == 0
 
 

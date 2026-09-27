@@ -1,13 +1,19 @@
 from stub_genlayer import gl, Address, u256
 from helpers import new_contract, register_jurors, submit_and_verdict, file_appeal, run_round
 from test_escalation import split_no_majority
-from modappeal import APPEAL_STAKE, JUROR_STAKE
+from modappeal import APPEAL_STAKE, JUROR_STAKE, JUROR_REGISTRATION_STAKE
 
 
-def total_contract_balance(appeal_stake: int, rounds_juror_counts: list) -> int:
-    """Every GEN that was ever sent into the contract: the appeal stake plus
-    one JUROR_STAKE per commit_vote call, across every round that ran."""
-    return appeal_stake + sum(n * int(JUROR_STAKE) for n in rounds_juror_counts)
+def total_contract_balance(appeal_stake: int, rounds_juror_counts: list, n_registered: int) -> int:
+    """Every GEN that was ever sent into the contract: the appeal stake,
+    one JUROR_STAKE per commit_vote call across every round that ran, and
+    one JUROR_REGISTRATION_STAKE per registered candidate (paid once,
+    regardless of whether that candidate was ever selected for a round)."""
+    return (
+        appeal_stake
+        + sum(n * int(JUROR_STAKE) for n in rounds_juror_counts)
+        + n_registered * int(JUROR_REGISTRATION_STAKE)
+    )
 
 
 def sum_all_claimable(c, addrs) -> int:
@@ -49,7 +55,9 @@ def test_multiround_escalation_accounting_balances():
     assert final["reward_pool"] == 0
 
     all_jurors_ever_staked = round1_jurors + round2_jurors
-    total_in = total_contract_balance(int(APPEAL_STAKE), [len(round1_jurors), len(round2_jurors)])
+    total_in = total_contract_balance(
+        int(APPEAL_STAKE), [len(round1_jurors), len(round2_jurors)], len(pool_addrs)
+    )
     total_out = sum_all_claimable(c, all_jurors_ever_staked) + int(c.treasury)
     assert total_out == total_in
 
@@ -82,6 +90,6 @@ def test_three_round_deadlock_accounting_balances():
     final = c.get_case(case_id)
     assert final["status"] == "FINALIZED_BY_DEADLOCK"
 
-    total_in = total_contract_balance(int(APPEAL_STAKE), round_sizes)
+    total_in = total_contract_balance(int(APPEAL_STAKE), round_sizes, len(pool_addrs))
     total_out = sum_all_claimable(c, all_jurors) + int(c.treasury)
     assert total_out == total_in
