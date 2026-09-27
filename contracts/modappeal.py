@@ -24,6 +24,7 @@ MAX_ESCALATIONS = 2  # up to 2 escalations beyond the base round -> 3 jury round
 
 APPEAL_STAKE = u256(10 * 10**18)
 JUROR_STAKE = u256(2 * 10**18)
+JUROR_REGISTRATION_STAKE = u256(1 * 10**18)
 
 APPEAL_WINDOW_SECONDS = 3 * 24 * 60 * 60
 COMMIT_WINDOW_SECONDS = 24 * 60 * 60
@@ -72,6 +73,7 @@ class Case:
     appeal_window_deadline: datetime.datetime
     appellant: Address
     evidence_hash: str
+    evidence_content_hash: str
     escalation_count: u256
     current_round_id: u256
     used_jurors: DynArray[Address]
@@ -96,8 +98,9 @@ does not unambiguously meet the VIOLATION bar above."""
 def _fetch_evidence_content(evidence_urls: list) -> str:
     # Actually fetch the cited evidence rather than judging a bare URL
     # string. Each validator performs this fetch independently (see
-    # _derive_verdict / the leader+validator wiring in auto_verdict),
-    # so the verdict is grounded in fetched content, not a URL's name.
+    # _derive_verdict_and_content_hash / the leader+validator wiring in
+    # auto_verdict), so the verdict is grounded in fetched content, not a
+    # URL's name.
     # If EVERY evidence URL fails to fetch, there is no real evidence to
     # adjudicate on at all -- raise rather than let a verdict be issued
     # against a placeholder "[unable to fetch ...]" string. A per-URL
@@ -116,8 +119,15 @@ def _fetch_evidence_content(evidence_urls: list) -> str:
     return "\n---\n".join(chunks)
 
 
-def _derive_verdict(content_id: str, evidence_urls: list) -> str:
+def _derive_verdict_and_content_hash(content_id: str, evidence_urls: list) -> str:
+    # Returns "VERDICT|content_hash" as a single string so leader and every
+    # validator can compare with plain string equality (the same pattern
+    # already proven safe/working for verdict-only agreement). Binding the
+    # fetched content's hash into the SAME consensus round means the case
+    # is bound to a specific, agreed evidence snapshot -- not just a URL
+    # list that could point to different bytes at different times.
     fetched = _fetch_evidence_content(evidence_urls)
+    content_hash = hashlib.sha256(fetched.encode()).hexdigest()
     prompt = (
         f"{MODERATION_POLICY}\n\n"
         f"Content id: {content_id}.\n"
@@ -127,7 +137,8 @@ def _derive_verdict(content_id: str, evidence_urls: list) -> str:
         "one word: VIOLATION, NO_VIOLATION, or PARTIAL."
     )
     result = gl.nondet.exec_prompt(prompt).strip().upper()
-    return result if result in VERDICTS else NO_VIOLATION
+    verdict = result if result in VERDICTS else NO_VIOLATION
+    return f"{verdict}|{content_hash}"
 
 
 class ModAppeal(gl.Contract):
@@ -148,15 +159,30 @@ class ModAppeal(gl.Contract):
     def _now(self) -> datetime.datetime:
         return datetime.datetime.now()
 
-    @gl.public.write
+    @gl.public.write.payable
     def register_as_juror(self):
+        # Anti-sybil: registration now costs a real, non-refundable stake
+        # (added to the treasury), so controlling many candidate addresses
+        # to try to bias case-specific selection (see _select_jurors) has a
+        # real GEN cost proportional to the number of identities -- it is
+        # no longer free. This does not make selection cryptographically
+        # random (still documented in ARCHITECTURE.md as a v1 trade-off),
+        # but it removes the "free" half of "captured through free
+        # predictable multi-address registration."
         addr = gl.message.sender_address
-        if addr not in self.candidate_jury_pool:
-            self.candidate_jury_pool.append(addr)
+        if addr in self.candidate_jury_pool:
+            raise Exception("already registered")
+        if gl.message.value != JUROR_REGISTRATION_STAKE:
+            raise Exception("incorrect registration stake")
+        self.candidate_jury_pool.append(addr)
+        self.treasury = u256(int(self.treasury) + int(JUROR_REGISTRATION_STAKE))
 
     @gl.public.write
     def submit_flag(self, platform: str, flagger: str, publisher: str,
                      content_id: str, evidence_urls: list) -> u256:
+        sender = gl.message.sender_address
+        if sender != Address(platform):
+            raise Exception("only the platform itself may submit a flag on its own behalf")
         case_id = self.next_case_id
         self.next_case_id = u256(int(self.next_case_id) + 1)
 
@@ -178,6 +204,7 @@ class ModAppeal(gl.Contract):
             appeal_window_deadline=now,
             appellant=ZERO_ADDRESS,
             evidence_hash="",
+            evidence_content_hash="",
             escalation_count=u256(0),
             current_round_id=u256(0),
             used_jurors=used_jurors_arr,
@@ -204,25 +231,28 @@ class ModAppeal(gl.Contract):
         evidence_urls = list(case.evidence_urls)
 
         def leader_fn():
-            return _derive_verdict(content_id, evidence_urls)
+            return _derive_verdict_and_content_hash(content_id, evidence_urls)
 
         def validator_fn(leader_result):
             # Meaningful validator adjudication: each validator independently
             # re-fetches the cited evidence and re-derives its own verdict
-            # against the same bound policy, then requires an exact match
-            # with the leader's verdict -- not a bare format/label check.
-            # Calls the module-level function directly (not through the
-            # leader_fn closure above) so this closure only ever captures
-            # plain values (content_id, evidence_urls), never another
-            # closure -- matching the exact shape already proven safe to
-            # serialize for the sandboxed nondet worker.
+            # AND the evidence content hash, against the same bound policy,
+            # then requires an exact match with the leader's claim -- not a
+            # bare format/label check. Calls the module-level function
+            # directly (not through the leader_fn closure above) so this
+            # closure only ever captures plain values (content_id,
+            # evidence_urls), never another closure -- matching the exact
+            # shape already proven safe to serialize for the sandboxed
+            # nondet worker.
             if not isinstance(leader_result, gl.vm.Return):
                 return False
-            independent_verdict = _derive_verdict(content_id, evidence_urls)
-            return independent_verdict == leader_result.calldata
+            independent = _derive_verdict_and_content_hash(content_id, evidence_urls)
+            return independent == leader_result.calldata
 
-        verdict = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+        combined = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+        verdict, content_hash = combined.split("|", 1)
         case.automated_verdict = verdict
+        case.evidence_content_hash = content_hash
         case.appeal_window_deadline = self._now() + datetime.timedelta(seconds=APPEAL_WINDOW_SECONDS)
         self.cases[case_id] = case
 
@@ -241,9 +271,11 @@ class ModAppeal(gl.Contract):
         # v1 limitation: deterministic, not truly random. But case-specific
         # (hash of case_id + address) rather than plain FIFO by registration
         # order, so no single early-registered address is always picked
-        # across every case. Documented in ARCHITECTURE.md as a v1 trade-off;
-        # sybil registration is still cheap (no juror-registration stake),
-        # also documented as deferred to v2.
+        # across every case. Registration now costs JUROR_REGISTRATION_STAKE
+        # (see register_as_juror), so controlling many candidate identities
+        # to bias this selection has a real GEN cost -- not free, though
+        # still not cryptographically random. Documented in ARCHITECTURE.md
+        # as a v1 trade-off.
         def sort_key(addr):
             return hashlib.sha256(f"{case_id}:{addr}".encode()).hexdigest()
         return sorted(available, key=sort_key)[:size]
@@ -476,6 +508,29 @@ class ModAppeal(gl.Contract):
             "current_round_id": int(case.current_round_id),
             "reward_pool": int(case.reward_pool),
             "evidence_hash": case.evidence_hash,
+            "evidence_content_hash": case.evidence_content_hash,
+        }
+
+    @gl.public.view
+    def get_case_for_jury(self, case_id: u256) -> dict:
+        # Everything a selected juror needs to cast an informed vote,
+        # in one call: the content being judged, the exact evidence URLs
+        # and the hash of the fetched content the automated verdict was
+        # bound to, the bound policy text jurors should apply, and the
+        # parties involved -- rather than expecting a juror to reconstruct
+        # this from separate calls or trust an off-chain description.
+        case = self.cases[case_id]
+        return {
+            "content_id": case.content_id,
+            "evidence_urls": list(case.evidence_urls),
+            "evidence_hash": case.evidence_hash,
+            "evidence_content_hash": case.evidence_content_hash,
+            "policy": MODERATION_POLICY,
+            "platform": str(case.platform),
+            "flagger": str(case.flagger),
+            "publisher": str(case.publisher),
+            "automated_verdict": case.automated_verdict,
+            "status": case.status,
         }
 
     @gl.public.view
