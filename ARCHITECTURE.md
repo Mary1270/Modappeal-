@@ -147,16 +147,24 @@ placeholder "unable to fetch" string — there is no such thing as a verdict
 grounded in no evidence. A partial fetch (some URLs succeed, some don't) is
 still tolerated, since partial evidence is still real evidence.
 
-**Evidence content is bound at the same consensus round as the verdict.**
-The leader and every validator don't just agree on a verdict string — they
-agree on `"VERDICT|content_hash"`, where `content_hash` is
-`sha256(fetched_content)`. This binds the case to a specific, consensus-
-agreed hash of the *fetched bytes*, not just the URL list (`evidence_hash`,
-§6, is still only a hash of the URLs). The agreed hash is stored as
-`Case.evidence_content_hash` and is exposed to jurors via
-`get_case_for_jury()` (§9), so a case is bound to authenticated evidence
-content from the moment of the automated verdict onward, not just from the
-moment of appeal.
+**Evidence content is hashed and recorded, but only the verdict is
+consensus-checked.** Every leader and validator call computes
+`"VERDICT|content_hash"` (`content_hash = sha256(fetched_content)`), but
+consensus (`validator_fn`) compares only the `VERDICT` half across leader
+and validators — not the full string. This was a deliberate correction
+after a real live failure: requiring byte-exact equality of the
+independently-fetched content itself caused a genuine `Undetermined`
+consensus result on Studio (a live web page's bytes can differ slightly
+between two fetches — ads, timestamps, whitespace — even though every
+validator derived the identical verdict from it). The leader's
+`content_hash` is still recorded as `Case.evidence_content_hash` and
+exposed to jurors via `get_case_for_jury()` (§9) — a real, deterministic
+commitment to a specific fetched snapshot — it is just leader-attested
+rather than independently hash-matched by every validator, the same trust
+level `evidence_hash` (§6) already operates at. The meaningful,
+independently-checked adjudication the steward asked for is the verdict
+itself, which every validator does genuinely re-derive from its own fetch
+and must match exactly.
 
 **Platform submissions are authenticated.** `submit_flag(platform, ...)`
 requires `gl.message.sender_address == Address(platform)` — only the
@@ -219,14 +227,17 @@ case-content view a juror needs before committing a vote.
   once a case exists; the meaningful adjudication (§7) happens inside the
   consensus mechanism itself regardless of who calls the function, so
   restricting the caller was judged unnecessary for v1.
-- **Evidence content is hashed once, at automated-verdict time, not
-  re-verified live at jury time.** `evidence_content_hash` (§7) binds the
-  case to the fetched content the automated verdict was based on, and is
-  exposed to jurors via `get_case_for_jury()` (§9). But a jury round does
-  not itself re-fetch and re-check evidence against that hash — a juror is
-  trusted to review the cited evidence and vote accordingly, the same way a
-  human juror would. A stronger v2 could have the jury's own commit-reveal
-  vote include an attestation that their review matched the recorded hash.
+- **Evidence content hash is leader-attested, not independently verified by
+  every validator, and not re-checked live at jury time.**
+  `evidence_content_hash` (§7) is computed by the leader from its own fetch
+  and recorded; only the *verdict* is independently re-derived and matched
+  by every validator, not the byte-exact content hash (§7 explains why —
+  a real live consensus failure when we tried the stricter version). A
+  jury round also does not itself re-fetch and re-check evidence against
+  that hash — a juror is trusted to review the cited evidence and vote
+  accordingly, the same way a human juror would. A stronger v2 would need
+  a tolerant, semantic evidence-equivalence check (not byte-exact hashing)
+  to safely make content-binding part of consensus itself.
 - **The bound moderation policy is narrow and fixed.** `MODERATION_POLICY`
   (§7) only names a few concrete categories (violence threats, hate speech
   targeting protected characteristics, CSAM) — real moderation policy is
@@ -240,7 +251,7 @@ case-content view a juror needs before committing a vote.
 
 ## 11. Corrections discovered only through live testing
 
-The offline test suite (32 tests, custom runner) proves the contract's
+The offline test suite (33 tests, custom runner) proves the contract's
 business logic, but a stub cannot catch GenVM-runtime-specific API
 mismatches. These were only found by deploying to GenLayer Studio and are
 recorded here since they are not documented anywhere else at the time of
@@ -280,6 +291,15 @@ writing:
 - `emit_transfer()` sends value to a plain wallet (EOA) with only
   `value=...` — passing an `on=...` trigger name (meant for contract
   recipients) causes a low-level `SystemError: 2: inval` on the transfer.
+- Requiring cross-validator consensus on a byte-exact hash of independently
+  `gl.nondet.web.render`-fetched content is too strict in practice: a real
+  live page's bytes can differ slightly between two independent fetches
+  (ads, timestamps, whitespace) even when every validator derives the
+  identical categorical verdict from it, producing a real `Undetermined`
+  consensus result (confirmed live on Studio, 3 leader rotations, never
+  resolved). Fix: consensus-check only the categorical verdict; record the
+  content hash as leader-attested metadata, not an independently
+  cross-checked equality condition.
 
 ## 12. Deployed instances (GenLayer Studio)
 
@@ -287,12 +307,12 @@ writing:
   reveal), redeployed after the §7 validator-adjudication fix and the §8/§9
   steward-requested protections (registration stake, platform
   authentication, evidence-content binding, jury-visible case context):
-  *pending redeploy — update this address once the corrected contract is
-  live.*
-- The full happy-path flow (submit → automated verdict → appeal → 5-juror
-  commit-reveal → majority tally → claim) was live-tested end-to-end on
-  Studio with short-window testnet variants before the §7 fix's production
-  deploy. Escalation (5→9 jurors) and deadlock (3 failed rounds) are covered
-  by the offline test suite, including exact GEN-accounting invariants
-  across multiple rounds, but were not additionally repeated live given the
-  offline coverage already exercises those paths precisely.
+  `0x256118cDc371bd0cB645EFA4faA7F5DCeC8a5399`.
+- Live-tested end-to-end on this exact deploy: `submit_flag` (authenticated
+  to the platform address) → `auto_verdict` reached `Accepted` consensus on
+  the first attempt (no leader rotation, confirming the §7 verdict-only
+  consensus fix) → `file_appeal` → 5-juror commit-reveal (each juror
+  registered with the 1 GEN stake) → majority tally (`FINALIZED`,
+  `VIOLATION`) → a real GEN payout via `claim()` (5.333333 GEN: 2 GEN
+  principal + a 3.333333 GEN share of the 10 GEN appeal-stake pool),
+  matching the contract's reward math exactly.

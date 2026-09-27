@@ -5,7 +5,7 @@ AI verdict on flagged content, a staked commit-reveal jury for appeals, and
 automatic escalation to a larger jury when the first jury can't reach a
 majority — instead of silently falling back to the original verdict.
 
-Live on GenLayer Studio: `0xab826397683A47deFEd74683D3A7515D9d0367f3`
+Live on GenLayer Studio: `0x256118cDc371bd0cB645EFA4faA7F5DCeC8a5399`
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full state machine, economics,
 and a list of GenVM runtime quirks discovered while building this (several are
@@ -41,7 +41,7 @@ undocumented anywhere else).
 ```
 contracts/modappeal.py   the contract
 frontend/index.html      no-build browser frontend (genlayer-js + MetaMask)
-tests/                   offline test suite (32 tests, no external deps)
+tests/                   offline test suite (33 tests, no external deps)
 ARCHITECTURE.md          full design doc + GenVM lessons learned
 ```
 
