@@ -69,3 +69,35 @@ def test_auto_verdict_refuses_when_all_evidence_unfetchable():
             c.auto_verdict(case_id)
     finally:
         gl.nondet.web.render = original_render
+
+
+def test_auto_verdict_succeeds_when_content_hash_differs_but_verdict_agrees():
+    """A validator must still accept the leader's verdict even if its own
+    independent fetch returns slightly different bytes (a live page can
+    drift between two fetches -- ads, timestamps, whitespace), as long as
+    the derived VERDICT itself matches. Requiring byte-exact content-hash
+    equality across independent fetches caused a real live consensus
+    failure (Undetermined) during testing -- this proves the fix."""
+    c = new_contract()
+    gl.message.sender_address = Address("0xplat")
+    case_id = c.submit_flag("0xplat", "0xflag", "0xpub", "content-1", ["https://example.com/a"])
+
+    call_count = {"n": 0}
+
+    def drifting_render(url):
+        call_count["n"] += 1
+        # every call returns slightly different content (simulating a live
+        # page that changed between the leader's fetch and a validator's
+        # independent re-fetch), so the content_hash will differ each time.
+        return f"stub content, fetch #{call_count['n']}"
+
+    gl.nondet.web.render = drifting_render
+    gl.nondet.exec_prompt = lambda prompt: "NO_VIOLATION"  # verdict is stable regardless of the drift
+    try:
+        c.auto_verdict(case_id)  # must NOT raise despite every fetch differing
+    finally:
+        gl.nondet.web.render = lambda url: f"[stub content for {url}]"
+
+    case = c.get_case(case_id)
+    assert case["automated_verdict"] == "NO_VIOLATION"
+    assert case["evidence_content_hash"] != ""  # still recorded, just not consensus-checked
