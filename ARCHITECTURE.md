@@ -14,7 +14,7 @@ silently reverting to the automated verdict.
 
 | Actor | Role |
 |---|---|
-| **Platform** | Registers content flags |
+| **Platform** | Registers content flags; must call `submit_flag` itself (authenticated — see §7) |
 | **Publisher** | Owner of the flagged content; may appeal a VIOLATION verdict; may appeal a PARTIAL verdict jointly with the flagger |
 | **Flagger** | Party who raised the flag; may appeal a NO_VIOLATION verdict; may appeal a PARTIAL verdict jointly with the publisher |
 | **Juror** | Stakes GEN to vote in commit-reveal rounds |
@@ -62,6 +62,7 @@ Non-reveals are excluded from `revealed_votes` entirely. If no candidate
 |---|---|
 | `APPEAL_STAKE` | 10 GEN |
 | `JUROR_STAKE` | 2 GEN |
+| `JUROR_REGISTRATION_STAKE` | 1 GEN (non-refundable, banked to treasury — see §8) |
 | `BASE_JURY_SIZE` | 5 |
 | `ESCALATION_JURY_SIZE` | 9 |
 | `MAX_ESCALATIONS` | 2 (up to 2 escalations beyond the base round → 3 jury rounds max) |
@@ -135,7 +136,7 @@ independent adjudication**:
    requiring every validator to independently fetch evidence and score it,
    rather than only audit the leader's self-reported JSON).
 
-The bound policy is intentionally narrow (§9 discusses categories not
+The bound policy is intentionally narrow (§10 discusses categories not
 covered) so that "apply the policy" is a concrete, checkable instruction
 rather than an open-ended judgment call — this is what makes independent
 re-derivation converge instead of just producing noise.
@@ -145,6 +146,22 @@ to fetch, `auto_verdict()` raises rather than issuing a verdict against a
 placeholder "unable to fetch" string — there is no such thing as a verdict
 grounded in no evidence. A partial fetch (some URLs succeed, some don't) is
 still tolerated, since partial evidence is still real evidence.
+
+**Evidence content is bound at the same consensus round as the verdict.**
+The leader and every validator don't just agree on a verdict string — they
+agree on `"VERDICT|content_hash"`, where `content_hash` is
+`sha256(fetched_content)`. This binds the case to a specific, consensus-
+agreed hash of the *fetched bytes*, not just the URL list (`evidence_hash`,
+§6, is still only a hash of the URLs). The agreed hash is stored as
+`Case.evidence_content_hash` and is exposed to jurors via
+`get_case_for_jury()` (§9), so a case is bound to authenticated evidence
+content from the moment of the automated verdict onward, not just from the
+moment of appeal.
+
+**Platform submissions are authenticated.** `submit_flag(platform, ...)`
+requires `gl.message.sender_address == Address(platform)` — only the
+platform address itself can open a case on its own behalf. Nobody can
+submit a flag that impersonates a platform they don't control.
 
 ## 8. Juror selection
 
@@ -162,24 +179,54 @@ predict its own odds for a specific case_id. This is a stated v1 trade-off,
 not a claim of fairness guarantees; a future version could use a
 GenLayer-native randomness/VRF primitive instead.
 
-## 9. Honest v1 limitations
+**Registration now costs a real stake.** `register_as_juror()` requires
+paying `JUROR_REGISTRATION_STAKE` (1 GEN), non-refundable, banked into
+`treasury`. This directly targets "final juries captured through free
+predictable multi-address registration": since selection is deterministic
+and an attacker who knows the algorithm could in principle compute which of
+their own addresses would win for a specific `case_id`, the previous free
+registration meant that capturing a jury only cost the gas to register
+arbitrarily many candidate addresses. A real per-address stake makes this
+proportional to GEN spent, not free. This is a mitigation, not a complete
+solve — a well-funded attacker can still register many addresses — but it
+removes the "free" half of the attack, which is the concrete gap the fix
+addresses. Combined with case-specific (not globally reusable) selection,
+the cost of biasing any one case's jury now scales with the number of
+distinct addresses an attacker is willing to fund.
 
-- **No juror-registration stake.** `register_as_juror()` is free, so a sybil
-  actor could register many addresses cheaply. Combined with the
-  case-specific (not random) selection above, this is a real, disclosed
-  weakness for a production deployment — deferred to v2 (e.g. a registration
-  bond, or reputation-weighted eligibility).
+## 9. Jury-visible case context
+
+`get_case_for_jury(case_id)` gives a selected juror everything needed to
+cast an informed vote in one call, rather than expecting them to
+reconstruct context from separate calls or trust an off-chain description:
+`content_id`, `evidence_urls`, `evidence_hash`, `evidence_content_hash`,
+the full `MODERATION_POLICY` text, and the `platform` / `flagger` /
+`publisher` addresses involved. This is distinct from `get_round()` (the
+jury composition and vote tallies for one round) and `get_case()`
+(status/verdict summary) — `get_case_for_jury` is specifically the
+case-content view a juror needs before committing a vote.
+
+## 10. Honest v1 limitations
+
+- **Juror registration cost is a mitigation, not a full solve.** §8 covers
+  this in detail: registration now costs `JUROR_REGISTRATION_STAKE`, which
+  removes the "free" half of sybil-capturing a jury, but a well-funded
+  attacker can still register many addresses — it raises the cost, it
+  doesn't make capture impossible. Deferred to v2: reputation-weighted
+  eligibility, or a GenLayer-native randomness primitive for selection
+  itself (§8) so knowing the algorithm no longer helps at all.
 - **`auto_verdict()` is intentionally permissionless.** Anyone can trigger it
   once a case exists; the meaningful adjudication (§7) happens inside the
   consensus mechanism itself regardless of who calls the function, so
   restricting the caller was judged unnecessary for v1.
-- **Evidence hash still covers the URL list, not the fetched content.**
-  `auto_verdict()` (§7) now fetches and independently re-verifies content at
-  judgment time, but `evidence_hash` (frozen at appeal) is still a hash of the
-  URL list, not of the fetched bytes at that moment. A URL's live content
-  could still drift between the automated verdict and a later jury round
-  reading "the same" evidence. A stronger v2 would hash fetched content into
-  the frozen snapshot itself, not just the URL list.
+- **Evidence content is hashed once, at automated-verdict time, not
+  re-verified live at jury time.** `evidence_content_hash` (§7) binds the
+  case to the fetched content the automated verdict was based on, and is
+  exposed to jurors via `get_case_for_jury()` (§9). But a jury round does
+  not itself re-fetch and re-check evidence against that hash — a juror is
+  trusted to review the cited evidence and vote accordingly, the same way a
+  human juror would. A stronger v2 could have the jury's own commit-reveal
+  vote include an attestation that their review matched the recorded hash.
 - **The bound moderation policy is narrow and fixed.** `MODERATION_POLICY`
   (§7) only names a few concrete categories (violence threats, hate speech
   targeting protected characteristics, CSAM) — real moderation policy is
@@ -191,9 +238,9 @@ GenLayer-native randomness/VRF primitive instead.
 - **Single-file contract.** No separate escrow or registry contract — there
   was no natural boundary at this scope to justify the split.
 
-## 10. Corrections discovered only through live testing
+## 11. Corrections discovered only through live testing
 
-The offline test suite (24 tests, custom runner) proves the contract's
+The offline test suite (32 tests, custom runner) proves the contract's
 business logic, but a stub cannot catch GenVM-runtime-specific API
 mismatches. These were only found by deploying to GenLayer Studio and are
 recorded here since they are not documented anywhere else at the time of
@@ -234,18 +281,18 @@ writing:
   `value=...` — passing an `on=...` trigger name (meant for contract
   recipients) causes a low-level `SystemError: 2: inval` on the transfer.
 
-## 11. Deployed instances (GenLayer Studio)
+## 12. Deployed instances (GenLayer Studio)
 
 - **Production contract** (real windows: 3-day appeal, 24h commit, 24h
-  reveal), redeployed after the §7 validator-adjudication fix:
-  `0xab826397683A47deFEd74683D3A7515D9d0367f3`. Live-tested: `submit_flag` ->
-  `auto_verdict` reached `Accepted` consensus on the first attempt (no
-  leader rotation) with real evidence fetched from a live URL, each
-  validator independently re-deriving and agreeing on `NO_VIOLATION`.
+  reveal), redeployed after the §7 validator-adjudication fix and the §8/§9
+  steward-requested protections (registration stake, platform
+  authentication, evidence-content binding, jury-visible case context):
+  *pending redeploy — update this address once the corrected contract is
+  live.*
 - The full happy-path flow (submit → automated verdict → appeal → 5-juror
   commit-reveal → majority tally → claim) was live-tested end-to-end on
-  Studio with short-window testnet variants before this production deploy.
-  Escalation (5→9 jurors) and deadlock (3 failed rounds) are covered by the
-  offline test suite, including exact GEN-accounting invariants across
-  multiple rounds, but were not additionally repeated live given the offline
-  coverage already exercises those paths precisely.
+  Studio with short-window testnet variants before the §7 fix's production
+  deploy. Escalation (5→9 jurors) and deadlock (3 failed rounds) are covered
+  by the offline test suite, including exact GEN-accounting invariants
+  across multiple rounds, but were not additionally repeated live given the
+  offline coverage already exercises those paths precisely.

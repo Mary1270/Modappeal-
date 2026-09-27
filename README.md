@@ -14,12 +14,20 @@ undocumented anywhere else).
 ## How it works
 
 1. A platform flags content — `submit_flag(platform, flagger, publisher, content_id, evidence_urls)`.
-2. Anyone can trigger the automated verdict — `auto_verdict(case_id)`. GenLayer's
-   validators reach consensus on one of `VIOLATION` / `NO_VIOLATION` / `PARTIAL`.
+   Only the platform address itself can call this on its own behalf (authenticated).
+2. Anyone can trigger the automated verdict — `auto_verdict(case_id)`. Every
+   validator independently fetches the cited evidence, applies the same bound
+   moderation policy, and derives its own verdict — an exact match across all
+   validators is required, binding the case to a specific hash of the fetched
+   evidence content in the same step.
 3. The losing side has a window to appeal — `file_appeal(case_id)`, staking 10 GEN.
-   This freezes the evidence and opens a 5-juror commit-reveal round.
-4. Jurors who registered (`register_as_juror()`) commit a hash of their vote,
-   then reveal it once commitment closes.
+   This freezes the evidence and opens a 5-juror commit-reveal round. If no one
+   appeals in time, anyone can call `expire_if_unappealed(case_id)` to finalize
+   the case at the automated verdict.
+4. Jurors who registered (`register_as_juror()`, which costs a 1 GEN
+   registration stake) commit a hash of their vote, then reveal it once
+   commitment closes. `get_case_for_jury(case_id)` exposes the content, evidence,
+   bound policy, and parties a juror needs before voting.
 5. If a majority (`votes * 2 > revealed_votes`) is reached, the case is
    `FINALIZED` and correct jurors split the appeal-stake reward pool.
 6. If not, the case automatically escalates to a **new** 9-juror round on the
@@ -33,7 +41,7 @@ undocumented anywhere else).
 ```
 contracts/modappeal.py   the contract
 frontend/index.html      no-build browser frontend (genlayer-js + MetaMask)
-tests/                   offline test suite (24 tests, no external deps)
+tests/                   offline test suite (32 tests, no external deps)
 ARCHITECTURE.md          full design doc + GenVM lessons learned
 ```
 
