@@ -162,7 +162,7 @@
   <div class="connectbar">
     <div class="field" style="margin-bottom:12px;">
       <label for="contractAddr">Contract address</label>
-      <input type="text" id="contractAddr" class="mono" placeholder="0x…" value="0xab826397683A47deFEd74683D3A7515D9d0367f3" />
+      <input type="text" id="contractAddr" class="mono" placeholder="0x… (paste the deployed contract address)" value="" />
     </div>
     <div class="row">
       <span class="status-dot" id="statusDot"></span>
@@ -212,6 +212,9 @@
       <p class="desc">Costs a 10 GEN stake, forfeited into the jury reward pool. Only the eligible side for the verdict above can appeal.</p>
       <button class="wide" id="btn_file_appeal">File appeal — stake 10 GEN</button>
       <div class="out" id="out_appeal"></div>
+      <p class="hint">If the appeal window passes with no appeal filed, anyone can finalize the case at the automated verdict.</p>
+      <button class="secondary wide" id="btn_expire_unappealed">Finalize — no appeal filed</button>
+      <div class="out" id="out_expire"></div>
     </div>
   </div>
 
@@ -220,9 +223,11 @@
     <div class="num">04</div>
     <div class="body">
       <h2>Jury</h2>
-      <p class="desc">Register the connected wallet as an eligible juror, or look up who was selected for a round.</p>
-      <button id="btn_register_juror">Register as juror</button>
+      <p class="desc">Register the connected wallet as an eligible juror (costs a 1 GEN registration stake — this is what keeps free sybil registration from cheaply capturing juries), or look up case details / who was selected for a round.</p>
+      <button id="btn_register_juror">Register as juror — stake 1 GEN</button>
       <div class="out" id="out_register"></div>
+      <button class="secondary wide" id="btn_get_case_for_jury" style="margin-top:16px;">View full case for jury (content, evidence, policy, parties)</button>
+      <div class="out" id="out_case_for_jury"></div>
       <div class="field" style="margin-top:16px;"><label>Round ID</label><input class="mono" id="round_id" placeholder="1"></div>
       <button class="secondary wide" id="btn_get_round">Look up round</button>
       <div class="out" id="out_round"></div>
@@ -440,13 +445,32 @@ $("btn_file_appeal").addEventListener("click", async () => {
   } catch (e) { show(out, errorText(e), "err"); }
 });
 
-// 4. register_as_juror / get_round
+// 3b. expire_if_unappealed
+$("btn_expire_unappealed").addEventListener("click", async () => {
+  const out = $("out_expire");
+  try {
+    show(out, "Finalizing…");
+    await write("expire_if_unappealed", [Number($("case_id").value)]);
+    const data = await read("get_case", [Number($("case_id").value)]);
+    renderCase(out, data);
+  } catch (e) { show(out, errorText(e), "err"); }
+});
+
+// 4. register_as_juror / get_case_for_jury / get_round
 $("btn_register_juror").addEventListener("click", async () => {
   const out = $("out_register");
   try {
     show(out, "Registering…");
-    await write("register_as_juror", []);
+    await write("register_as_juror", [], 1n * GEN);
     show(out, "Registered as a juror.", "ok");
+  } catch (e) { show(out, errorText(e), "err"); }
+});
+$("btn_get_case_for_jury").addEventListener("click", async () => {
+  const out = $("out_case_for_jury");
+  try {
+    show(out, "Looking up…");
+    const data = await read("get_case_for_jury", [Number($("case_id").value)]);
+    show(out, JSON.stringify(data, null, 2));
   } catch (e) { show(out, errorText(e), "err"); }
 });
 $("btn_get_round").addEventListener("click", async () => {
