@@ -120,12 +120,13 @@ def _fetch_evidence_content(evidence_urls: list) -> str:
 
 
 def _derive_verdict_and_content_hash(content_id: str, evidence_urls: list) -> str:
-    # Returns "VERDICT|content_hash" as a single string so leader and every
-    # validator can compare with plain string equality (the same pattern
-    # already proven safe/working for verdict-only agreement). Binding the
-    # fetched content's hash into the SAME consensus round means the case
-    # is bound to a specific, agreed evidence snapshot -- not just a URL
-    # list that could point to different bytes at different times.
+    # Returns "VERDICT|content_hash". Only the VERDICT half is used for
+    # cross-validator consensus (see validator_fn in auto_verdict) -- the
+    # content_hash half is recorded as leader-attested metadata binding the
+    # case to a specific fetched snapshot, not independently hash-matched
+    # by every validator, since byte-exact equality of independently
+    # fetched live web content proved too strict for real pages (a
+    # confirmed live consensus failure during testing).
     fetched = _fetch_evidence_content(evidence_urls)
     content_hash = hashlib.sha256(fetched.encode()).hexdigest()
     prompt = (
@@ -236,18 +237,29 @@ class ModAppeal(gl.Contract):
         def validator_fn(leader_result):
             # Meaningful validator adjudication: each validator independently
             # re-fetches the cited evidence and re-derives its own verdict
-            # AND the evidence content hash, against the same bound policy,
-            # then requires an exact match with the leader's claim -- not a
-            # bare format/label check. Calls the module-level function
-            # directly (not through the leader_fn closure above) so this
-            # closure only ever captures plain values (content_id,
+            # against the same bound policy, then requires an exact match on
+            # the VERDICT with the leader's claim -- not a bare format/label
+            # check. Consensus is checked on the verdict only, not on the
+            # full "verdict|content_hash" string: requiring byte-exact
+            # equality of independently-fetched web content across multiple
+            # validators proved too strict live (a real page's bytes can
+            # differ slightly between two fetches -- ads, timestamps,
+            # whitespace -- even when the verdict itself is consistently
+            # agreed), and caused a genuine `Undetermined` consensus result
+            # in testing. The content hash is still recorded (leader-
+            # attested, like evidence_hash already is), just not used as a
+            # hard consensus-breaking equality check. Calls the module-level
+            # function directly (not through the leader_fn closure above) so
+            # this closure only ever captures plain values (content_id,
             # evidence_urls), never another closure -- matching the exact
             # shape already proven safe to serialize for the sandboxed
             # nondet worker.
             if not isinstance(leader_result, gl.vm.Return):
                 return False
             independent = _derive_verdict_and_content_hash(content_id, evidence_urls)
-            return independent == leader_result.calldata
+            independent_verdict = independent.split("|", 1)[0]
+            leader_verdict = leader_result.calldata.split("|", 1)[0]
+            return independent_verdict == leader_verdict
 
         combined = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
         verdict, content_hash = combined.split("|", 1)
